@@ -10,113 +10,177 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <stdlib.h>
+#include <algorithm>
 #include <pthread.h>
 #include <cstring>
 
 using namespace std;
 
-// const unsigned port = 5100;
 const unsigned MAXBUFLEN = 512;
 pthread_mutex_t accept_lock = PTHREAD_MUTEX_INITIALIZER;
 int serv_sockfd;
-// vector<int> sock_vector;
+socklen_t len;
+struct sockaddr_in addr, recaddr;
+vector<int> sock_vector;
 map<string, int> usertofd;
-// map<int, string> fdtouser;
+map<int, string> fdtouser;
 fd_set allset, rset;
 int sockfd, rec_sock, maxfd;
 
 void parse_message(string str, int cli_fd)
 {
-	int fd, pos = 0, flag = 0;
+	int fd;
+	size_t pos = 0;
 	string username = "";
 	string login = "login ";
-	string chat = "chat [";
+	string chat = "chat ";
+	char msg[100];
 	if ((pos = str.find(login)) != string::npos)
 	{
-		str.erase(0, pos + login.length());
-		usertofd.insert(make_pair(str, cli_fd));
-		char cstr[str.size() + 1];
-		strcpy(cstr, str.c_str());
-		write(cli_fd, cstr, strlen(cstr));
+		if (fdtouser[cli_fd] != "")
+		{
+			strcpy(msg,"User already logged in.");
+			write(cli_fd, msg, strlen(msg));
+		}
+		else
+		{
+			str.erase(0, pos + login.length());
+			usertofd.insert(make_pair(str, cli_fd));
+			fdtouser[cli_fd] = str;
+			strcpy(msg, "User logged in.");
+			write(cli_fd, msg, strlen(msg));
+		}
+	}
+	else if (fdtouser[cli_fd] == "" && str != "exit")
+	{
+		strcpy(msg, "User not logged in.");
+		write(cli_fd, msg, strlen(msg));
 	}
 	else if ((pos = str.find(chat)) != string::npos)
 	{
 		str.erase(0, pos + chat.length());
-		if ((pos = str.find("@")) == string::npos)
+		if ((pos = str.find("@")) != string::npos)
 		{
-			// cout << "user not specified" << endl;
-			flag = 1;
-		}
-		if ((pos = str.find("]")) != string::npos)
-		{
-			// cout << flag << pos << endl;
-			if (flag == 1)
+			if ((pos = str.find(" ")) != string::npos)
 			{
-				username = "";
+				username = str.substr(1, pos - 1);
+				str.erase(0, pos);
+			}
+			if (usertofd.find(username) != usertofd.end())
+			{
+				fd = usertofd[username];
+				cout << "fd:" << fd << endl;
 			}
 			else
 			{
-				username = str.substr(1, pos - 1);
+				strcpy(msg, "Error: Mentioned user not on server.");
+				write(cli_fd, msg, strlen(msg));
+				return;
 			}
-			// cout << "fetching user: " << username << endl;
-			if (username != "")
-			{
-				fd = usertofd[username];
-				// cout << "fetched fd: " << fd << endl;
-			}
-			str.erase(0, pos + 2);
-			// cout << "fetching message: " << str << endl;
+			str.erase(0, 1);
 		}
-		char cstr[str.size() + 1];
-		strcpy(cstr, str.c_str());
-		if (flag == 0)
+		strcpy(msg, str.c_str());
+		if (username != "")
 		{
-			// cout << "sending to fd: " << fd << endl;
-			write(fd, cstr, strlen(cstr));
+			write(fd, msg, strlen(msg));
 		}
 		else
 		{
 			for (const auto &pair : usertofd)
 			{
-				write(pair.second, cstr, strlen(cstr));
+				if (pair.second != cli_fd)
+					write(pair.second, msg, strlen(msg));
 			}
+		}
+	}
+	else if (str == "logout")
+	{
+		strcpy(msg,"User logged out.");
+		usertofd.erase(fdtouser[cli_fd]);
+		fdtouser[cli_fd] = "";
+		write(cli_fd, msg, strlen(msg));
+	}
+	else if (str == "exit")
+	{
+		strcpy(msg,"exit");
+		if (fdtouser[cli_fd] == "")
+		{
+			fdtouser.erase(cli_fd);
+			write(cli_fd, msg, strlen(msg));
+			close(cli_fd);
+		}
+		else
+		{
+			strcpy(msg, "User should logout.");
+			write(cli_fd, msg, strlen(msg));
 		}
 	}
 }
 
-int test_func()
+void *one_thread1(void *arg)
 {
-	int cli_sockfd;
-	struct sockaddr_in cli_addr;
-	socklen_t sock_len;
+	char buf[MAXBUFLEN];
+	int tid = *((int *)arg);
+	free(arg);
 
-	rset = allset;
-	sock_len = sizeof(cli_addr);
-
-	select(maxfd + 1, &rset, NULL, NULL, NULL);
-	if (FD_ISSET(serv_sockfd, &rset))
+	cout << "thread " << tid << " created" << endl;
+	while (1)
 	{
-		/* somebody tries to connect */
-		if (cli_sockfd = accept(serv_sockfd, (struct sockaddr *)&cli_addr, &sock_len) < 0)
+		rset = allset;
+		select(maxfd + 1, &rset, NULL, NULL, NULL);
+		if (FD_ISSET(serv_sockfd, &rset))
 		{
-			// if (errno == EINTR)
-			// 	continue;
-			// else
-			// {
-				perror(":accept error");
-				exit(1);
-			// }
+			/* somebody tries to connect */
+			if ((rec_sock = accept(serv_sockfd, (struct sockaddr *)(&recaddr), &len)) < 0)
+			{
+				if (errno == EINTR)
+					continue;
+				else
+				{
+					perror(":accept error");
+					exit(1);
+				}
+			}
+
+			fdtouser[rec_sock] = "";
+			sock_vector.push_back(rec_sock);
+			FD_SET(rec_sock, &allset);
+			if (rec_sock > maxfd)
+				maxfd = rec_sock;
 		}
 
-		// cout << "thread " << tid << ": ";
-		cout << "remote client IP == " << inet_ntoa(cli_addr.sin_addr);
-		cout << ", port == " << ntohs(cli_addr.sin_port) << endl;
+		auto itr = sock_vector.begin();
+		while (itr != sock_vector.end())
+		{
+			int num, fd;
+			fd = *itr;
+			if (FD_ISSET(fd, &rset))
+			{
+				num = read(fd, buf, 100);
+				if (num == 0)
+				{
+					/* client exits */
+					close(fd);
+					FD_CLR(fd, &allset);
+					itr = sock_vector.erase(itr);
+					continue;
+				}
+				else
+				{
+					buf[num] = '\0';
+					parse_message(buf, fd);
+				}
+			}
+			++itr;
+		}
 
-		FD_SET(cli_sockfd, &allset);
-		if (cli_sockfd > maxfd)
-			maxfd = cli_sockfd;
+		maxfd = serv_sockfd;
+		if (!sock_vector.empty())
+		{
+			maxfd = max(maxfd, *max_element(sock_vector.begin(),
+											sock_vector.end()));
+		}
 	}
-	return cli_sockfd;
 }
 
 void *one_thread(void *arg)
@@ -135,7 +199,6 @@ void *one_thread(void *arg)
 	{
 		sock_len = sizeof(cli_addr);
 		pthread_mutex_lock(&accept_lock);
-		// cli_sockfd = 
 		cli_sockfd = accept(serv_sockfd, (struct sockaddr *)&cli_addr, &sock_len);
 		pthread_mutex_unlock(&accept_lock);
 
@@ -146,7 +209,6 @@ void *one_thread(void *arg)
 		while ((n = read(cli_sockfd, buf, MAXBUFLEN)) > 0)
 		{
 			buf[n] = '\0';
-			// cout << cli_sockfd<< buf << endl;
 			parse_message(buf, cli_sockfd);
 		}
 		if (n == 0)
@@ -194,11 +256,13 @@ int main(int argc, char *argv[])
 	FD_SET(serv_sockfd, &allset);
 	maxfd = serv_sockfd;
 
+	sock_vector.clear();
+
 	for (i = 0; i < number_thread; ++i)
 	{
 		tid_ptr = (int *)malloc(sizeof(int));
 		*tid_ptr = i;
-		pthread_create(&tid, NULL, &one_thread, (void *)tid_ptr);
+		pthread_create(&tid, NULL, &one_thread1, (void *)tid_ptr);
 	}
 
 	for (;;)

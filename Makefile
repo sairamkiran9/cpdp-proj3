@@ -1,9 +1,9 @@
 # Compiler
 CXX = g++
-CXXFLAGS = -g -std=gnu99 -Wall -pedantic -pthread
+CXXFLAGS = -g -Wall -pedantic -pthread
 
 # Single target to run complie and get all binaries
-shell: test_client.x test_server.x
+shell: server.x client.x
 
 # Compiles and produces individual binary file
 %.x:  %.cpp
