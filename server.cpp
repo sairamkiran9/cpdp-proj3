@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <pthread.h>
 #include <cstring>
+#include <signal.h>
 
 using namespace std;
 
@@ -20,6 +21,7 @@ const unsigned MAXBUFLEN = 512;
 pthread_mutex_t accept_lock = PTHREAD_MUTEX_INITIALIZER;
 int serv_sockfd;
 socklen_t len;
+pthread_t tid;
 struct sockaddr_in addr, recaddr;
 vector<int> sock_vector;
 map<string, int> usertofd;
@@ -37,19 +39,22 @@ void parse_message(string str, int cli_fd)
 	char msg[100];
 	if ((pos = str.find(login)) != string::npos)
 	{
-		if (fdtouser[cli_fd] != "")
+		str.erase(0, pos + login.length());
+		if (fdtouser[cli_fd] != "" && usertofd.find(str) != usertofd.end())
 		{
-			strcpy(msg,"User already logged in.");
-			write(cli_fd, msg, strlen(msg));
+			strcpy(msg, "User already logged in.");
+		}
+		else if (fdtouser[cli_fd] != "")
+		{
+			strcpy(msg, "Another user already logged in.");
 		}
 		else
 		{
-			str.erase(0, pos + login.length());
 			usertofd.insert(make_pair(str, cli_fd));
 			fdtouser[cli_fd] = str;
 			strcpy(msg, "User logged in.");
-			write(cli_fd, msg, strlen(msg));
 		}
+		write(cli_fd, msg, strlen(msg));
 	}
 	else if (fdtouser[cli_fd] == "" && str != "exit")
 	{
@@ -69,7 +74,7 @@ void parse_message(string str, int cli_fd)
 			if (usertofd.find(username) != usertofd.end())
 			{
 				fd = usertofd[username];
-				cout << "fd:" << fd << endl;
+				// cout << "fd:" << fd << endl;
 			}
 			else
 			{
@@ -79,6 +84,7 @@ void parse_message(string str, int cli_fd)
 			}
 			str.erase(0, 1);
 		}
+		str = fdtouser[cli_fd] + " >> " + str;
 		strcpy(msg, str.c_str());
 		if (username != "")
 		{
@@ -95,14 +101,14 @@ void parse_message(string str, int cli_fd)
 	}
 	else if (str == "logout")
 	{
-		strcpy(msg,"User logged out.");
+		strcpy(msg, "User logged out.");
 		usertofd.erase(fdtouser[cli_fd]);
 		fdtouser[cli_fd] = "";
 		write(cli_fd, msg, strlen(msg));
 	}
 	else if (str == "exit")
 	{
-		strcpy(msg,"exit");
+		strcpy(msg, "exit");
 		if (fdtouser[cli_fd] == "")
 		{
 			fdtouser.erase(cli_fd);
@@ -123,9 +129,10 @@ void *one_thread1(void *arg)
 	int tid = *((int *)arg);
 	free(arg);
 
-	cout << "thread " << tid << " created" << endl;
+	// cout << "thread " << tid << " created" << endl;
 	while (1)
 	{
+		// pthread_mutex_lock(&accept_lock);
 		rset = allset;
 		select(maxfd + 1, &rset, NULL, NULL, NULL);
 		if (FD_ISSET(serv_sockfd, &rset))
@@ -141,13 +148,14 @@ void *one_thread1(void *arg)
 					exit(1);
 				}
 			}
-
+			// cout << "new connection: " << rec_sock << endl;
 			fdtouser[rec_sock] = "";
 			sock_vector.push_back(rec_sock);
 			FD_SET(rec_sock, &allset);
 			if (rec_sock > maxfd)
 				maxfd = rec_sock;
 		}
+		// pthread_mutex_unlock(&accept_lock);
 
 		auto itr = sock_vector.begin();
 		while (itr != sock_vector.end())
@@ -183,53 +191,48 @@ void *one_thread1(void *arg)
 	}
 }
 
-void *one_thread(void *arg)
+void check_time_wait()
 {
-	int cli_sockfd;
-	struct sockaddr_in cli_addr;
-	socklen_t sock_len;
-	ssize_t n;
-	char buf[MAXBUFLEN];
-
-	int tid = *((int *)arg);
-	free(arg);
-
-	cout << "thread " << tid << " created" << endl;
-	for (;;)
+	int optval;
+	socklen_t optlen = sizeof(optval);
+	if (getsockopt(serv_sockfd, SOL_SOCKET, SO_ERROR, &optval, &optlen) == -1)
 	{
-		sock_len = sizeof(cli_addr);
-		pthread_mutex_lock(&accept_lock);
-		cli_sockfd = accept(serv_sockfd, (struct sockaddr *)&cli_addr, &sock_len);
-		pthread_mutex_unlock(&accept_lock);
-
-		cout << "thread " << tid << ": ";
-		cout << "remote client IP == " << inet_ntoa(cli_addr.sin_addr);
-		cout << ", port == " << ntohs(cli_addr.sin_port) << endl;
-
-		while ((n = read(cli_sockfd, buf, MAXBUFLEN)) > 0)
-		{
-			buf[n] = '\0';
-			parse_message(buf, cli_sockfd);
-		}
-		if (n == 0)
-		{
-			cout << "server: client closed" << endl;
-		}
-		else
-		{
-			cout << "server: something wrong" << endl;
-		}
-		close(cli_sockfd);
+		perror("getsockopt");
+		exit(EXIT_FAILURE);
 	}
-	return (NULL);
+
+	if (optval == EINPROGRESS)
+	{
+		printf("Socket is in TIME_WAIT state\n");
+	}
+	else
+	{
+		printf("Socket is not in TIME_WAIT state\n");
+	}
+
+	// Close the socket
+	close(serv_sockfd);
+}
+
+static void sig_int(int signo)
+{
+	for (const auto &pair : fdtouser)
+	{
+		close(pair.first);
+	}
+	// check_time_wait();
+	close(serv_sockfd);
+	cout << "Server closed" << endl;
+	exit(0);
 }
 
 int main(int argc, char *argv[])
 {
 	struct sockaddr_in serv_addr;
 	int port, number_thread, i;
-	pthread_t tid;
 	int *tid_ptr;
+
+	signal(SIGINT, sig_int);
 
 	if (argc != 3)
 	{
@@ -240,13 +243,17 @@ int main(int argc, char *argv[])
 	port = atoi(argv[1]);
 	number_thread = atoi(argv[2]);
 
-	cout << "port = " << port << " number of threads == " << number_thread << endl;
+	// cout << "port = " << port << " number of threads == " << number_thread << endl;
+	cout << "server started on port: " << port << endl;
 	serv_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
 	bzero((void *)&serv_addr, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(port);
+
+	int optval = 1;
+	setsockopt(serv_sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
 	bind(serv_sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
 
@@ -263,6 +270,7 @@ int main(int argc, char *argv[])
 		tid_ptr = (int *)malloc(sizeof(int));
 		*tid_ptr = i;
 		pthread_create(&tid, NULL, &one_thread1, (void *)tid_ptr);
+		// pthread_join(tid, NULL);
 	}
 
 	for (;;)
