@@ -14,12 +14,13 @@
 #include <pthread.h>
 #include <cstring>
 #include <signal.h>
+#include <fstream>
 
 using namespace std;
 
 const unsigned MAXBUFLEN = 512;
 pthread_mutex_t accept_lock = PTHREAD_MUTEX_INITIALIZER;
-int serv_sockfd;
+int serv_sockfd, port, number_thread;
 socklen_t len;
 pthread_t tid;
 struct sockaddr_in addr, recaddr;
@@ -48,11 +49,14 @@ void parse_message(string str, int cli_fd)
 		{
 			strcpy(msg, "Another user already logged in.");
 		}
-		else
+		else if (usertofd.find(str) == usertofd.end())
 		{
 			usertofd.insert(make_pair(str, cli_fd));
 			fdtouser[cli_fd] = str;
 			strcpy(msg, "User logged in.");
+		}
+		else {
+			strcpy(msg, "User already logged in.");
 		}
 		write(cli_fd, msg, strlen(msg));
 	}
@@ -74,7 +78,6 @@ void parse_message(string str, int cli_fd)
 			if (usertofd.find(username) != usertofd.end())
 			{
 				fd = usertofd[username];
-				// cout << "fd:" << fd << endl;
 			}
 			else
 			{
@@ -126,7 +129,7 @@ void parse_message(string str, int cli_fd)
 void *one_thread1(void *arg)
 {
 	char buf[MAXBUFLEN];
-	int tid = *((int *)arg);
+	// int tid = *((int *)arg);
 	free(arg);
 
 	// cout << "thread " << tid << " created" << endl;
@@ -226,22 +229,53 @@ static void sig_int(int signo)
 	exit(0);
 }
 
+void load_config(char *filename) {
+    map<string, string> kv_map;
+    ifstream infile(filename);
+    string line;
+    while (getline(infile, line)) {
+        size_t pos = line.find(':');
+        if (pos != string::npos) {
+            string key = line.substr(0, pos);
+            string value = line.substr(pos+1);
+            kv_map[key] = value;
+        }
+    }
+    infile.close();
+
+    for (auto it = kv_map.begin(); it != kv_map.end(); ++it) {
+        cout << it->first << " = " << it->second << endl;
+		if (it->first == "port"){
+			port = stoi(it->second);
+			if(port == 0) {
+				port = 25100 + (rand() % (25299 - 25100+ 1));;
+			}
+		}
+		else if (it->first == "threads") {
+			number_thread = stoi(it->second);
+		}
+    }
+}
+
 int main(int argc, char *argv[])
 {
 	struct sockaddr_in serv_addr;
-	int port, number_thread, i;
 	int *tid_ptr;
 
 	signal(SIGINT, sig_int);
 
-	if (argc != 3)
+	if (argc != 2)
 	{
-		fprintf(stderr, "%s port number_thread\n", argv[0]);
+		fprintf(stderr, "%s chat_server configration_file\n", argv[0]);
 		exit(1);
 	}
 
-	port = atoi(argv[1]);
-	number_thread = atoi(argv[2]);
+	load_config(argv[1]);
+
+	if (port < 25100 || port > 25299){
+		fprintf(stderr, "port should be in the range 25100 - 25299\n");
+		exit(1);
+	}
 
 	// cout << "port = " << port << " number of threads == " << number_thread << endl;
 	cout << "server started on port: " << port << endl;
@@ -265,12 +299,11 @@ int main(int argc, char *argv[])
 
 	sock_vector.clear();
 
-	for (i = 0; i < number_thread; ++i)
+	for (int i = 0; i < number_thread; ++i)
 	{
 		tid_ptr = (int *)malloc(sizeof(int));
 		*tid_ptr = i;
 		pthread_create(&tid, NULL, &one_thread1, (void *)tid_ptr);
-		// pthread_join(tid, NULL);
 	}
 
 	for (;;)

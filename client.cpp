@@ -1,4 +1,5 @@
 #include <iostream>
+#include <map>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <strings.h>
@@ -11,10 +12,14 @@
 #include <cstring>
 #include <pthread.h>
 #include <signal.h>
+#include <fstream>
+#include <algorithm>
+#include <string.h>
 
 using namespace std;
 const unsigned MAXBUFLEN = 512;
-int sockfd;
+int sockfd, port;
+string host;
 
 static void sig_int(int signo)
 {
@@ -57,7 +62,34 @@ void *process_connection(void *arg)
 	}
 }
 
-// const unsigned serv_port = 5100;
+void load_config(char *filename) {
+    map<string, string> kv_map;
+    ifstream infile(filename);
+    string line;
+    while (getline(infile, line)) {
+        size_t pos = line.find(':');
+        if (pos != string::npos) {
+            string key = line.substr(0, pos);
+            string value = line.substr(pos+1);
+            kv_map[key] = value;
+        }
+    }
+    infile.close();
+
+    for (auto it = kv_map.begin(); it != kv_map.end(); ++it) {
+        cout << it->first << " = " << it->second << endl;
+		if (it->first == "port"){
+			port = stoi(it->second);
+			if(port == 0) {
+				port = 25100 + (rand() % (25299 - 25100+ 1));;
+			}
+		}
+		else if (it->first == "host") {
+			host = it->second;
+			host.erase(remove_if(host.begin(), host.end(), ::isspace), host.end());
+		}
+    }
+}
 
 int main(int argc, char **argv)
 {
@@ -65,19 +97,21 @@ int main(int argc, char **argv)
 	struct addrinfo hints, *res, *ressave;
 	pthread_t tid;
 
-	if (argc != 3)
+	if (argc != 2)
 	{
-		cout << "echo_client server_name_or_ip port" << endl;
+		fprintf(stderr, "%s chat_client configration_file\n", argv[0]);
 		exit(1);
 	}
+	
+	load_config(argv[1]);
 
-	cout << argv[1] << " " << argv[2] << endl;
+	cout << host << " " << port << endl;
 
 	bzero(&hints, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 
-	if ((rv = getaddrinfo(argv[1], argv[2], &hints, &res)) != 0)
+	if ((rv = getaddrinfo(host.c_str(), to_string(port).c_str(), &hints, &res)) != 0)
 	{
 		cout << "getaddrinfo wrong: " << gai_strerror(rv) << endl;
 		exit(1);
