@@ -77,7 +77,7 @@ void load_config(char *filename) {
     infile.close();
 
     for (auto it = kv_map.begin(); it != kv_map.end(); ++it) {
-        cout << it->first << " = " << it->second << endl;
+        // cout << it->first << " = " << it->second << endl;
 		if (it->first == "port"){
 			port = stoi(it->second);
 			if(port == 0) {
@@ -110,6 +110,9 @@ int main(int argc, char **argv)
 	bzero(&hints, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
+
+	// const char* hostname = "www.example.com";
+    // const char* port1 = "";
 
 	if ((rv = getaddrinfo(host.c_str(), to_string(port).c_str(), &hints, &res)) != 0)
 	{

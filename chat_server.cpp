@@ -20,7 +20,7 @@ using namespace std;
 
 const unsigned MAXBUFLEN = 512;
 pthread_mutex_t accept_lock = PTHREAD_MUTEX_INITIALIZER;
-int serv_sockfd, port, number_thread;
+int serv_sockfd, port, number_thread = 1;
 socklen_t len;
 pthread_t tid;
 struct sockaddr_in addr, recaddr;
@@ -43,11 +43,11 @@ void parse_message(string str, int cli_fd)
 		str.erase(0, pos + login.length());
 		if (fdtouser[cli_fd] != "" && usertofd.find(str) != usertofd.end())
 		{
-			strcpy(msg, "User already logged in.");
+			strcpy(msg, "ERROR: User already logged in.");
 		}
 		else if (fdtouser[cli_fd] != "")
 		{
-			strcpy(msg, "Another user already logged in.");
+			strcpy(msg, "ERROR: Another user already logged in.");
 		}
 		else if (usertofd.find(str) == usertofd.end())
 		{
@@ -56,13 +56,13 @@ void parse_message(string str, int cli_fd)
 			strcpy(msg, "User logged in.");
 		}
 		else {
-			strcpy(msg, "User already logged in.");
+			strcpy(msg, "ERROR: User already logged in.");
 		}
 		write(cli_fd, msg, strlen(msg));
 	}
 	else if (fdtouser[cli_fd] == "" && str != "exit")
 	{
-		strcpy(msg, "User not logged in.");
+		strcpy(msg, "ERROR: User not logged in.");
 		write(cli_fd, msg, strlen(msg));
 	}
 	else if ((pos = str.find(chat)) != string::npos)
@@ -120,7 +120,7 @@ void parse_message(string str, int cli_fd)
 		}
 		else
 		{
-			strcpy(msg, "User should logout.");
+			strcpy(msg, "ERROR: User should logout.");
 			write(cli_fd, msg, strlen(msg));
 		}
 	}
@@ -244,7 +244,7 @@ void load_config(char *filename) {
     infile.close();
 
     for (auto it = kv_map.begin(); it != kv_map.end(); ++it) {
-        cout << it->first << " = " << it->second << endl;
+        // cout << it->first << " = " << it->second << endl;
 		if (it->first == "port"){
 			port = stoi(it->second);
 			if(port == 0) {

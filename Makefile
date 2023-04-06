@@ -3,7 +3,7 @@ CXX = g++
 CXXFLAGS = -g -Wall -pedantic -pthread
 
 # Single target to run complie and get all binaries
-shell: server.x client.x
+shell: chat_server.x chat_client.x
 
 # Compiles and produces individual binary file
 %.x:  %.cpp
