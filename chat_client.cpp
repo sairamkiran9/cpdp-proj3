@@ -77,14 +77,13 @@ void load_config(char *filename) {
     infile.close();
 
     for (auto it = kv_map.begin(); it != kv_map.end(); ++it) {
-        // cout << it->first << " = " << it->second << endl;
-		if (it->first == "port"){
+		if (it->first == "servport"){
 			port = stoi(it->second);
 			if(port == 0) {
 				port = 25100 + (rand() % (25299 - 25100+ 1));;
 			}
 		}
-		else if (it->first == "host") {
+		else if (it->first == "servhost") {
 			host = it->second;
 			host.erase(remove_if(host.begin(), host.end(), ::isspace), host.end());
 		}

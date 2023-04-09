@@ -55,7 +55,8 @@ void parse_message(string str, int cli_fd)
 			fdtouser[cli_fd] = str;
 			strcpy(msg, "User logged in.");
 		}
-		else {
+		else
+		{
 			strcpy(msg, "ERROR: User already logged in.");
 		}
 		write(cli_fd, msg, strlen(msg));
@@ -229,32 +230,40 @@ static void sig_int(int signo)
 	exit(0);
 }
 
-void load_config(char *filename) {
-    map<string, string> kv_map;
-    ifstream infile(filename);
-    string line;
-    while (getline(infile, line)) {
-        size_t pos = line.find(':');
-        if (pos != string::npos) {
-            string key = line.substr(0, pos);
-            string value = line.substr(pos+1);
-            kv_map[key] = value;
-        }
-    }
-    infile.close();
+void load_config(char *filename)
+{
+	map<string, string> kv_map;
+	ifstream infile(filename);
+	string line;
+	while (getline(infile, line))
+	{
+		size_t pos = line.find(':');
+		if (pos != string::npos)
+		{
+			string key = line.substr(0, pos);
+			string value = line.substr(pos + 1);
+			kv_map[key] = value;
+		}
+	}
+	infile.close();
 
-    for (auto it = kv_map.begin(); it != kv_map.end(); ++it) {
-        // cout << it->first << " = " << it->second << endl;
-		if (it->first == "port"){
+	for (auto it = kv_map.begin(); it != kv_map.end(); ++it)
+	{
+		// cout << it->first << " = " << it->second << endl;
+		if (it->first == "port")
+		{
 			port = stoi(it->second);
-			if(port == 0) {
-				port = 25100 + (rand() % (25299 - 25100+ 1));;
+			if (port == 0)
+			{
+				port = 25100 + (rand() % (25299 - 25100 + 1));
+				;
 			}
 		}
-		else if (it->first == "threads") {
+		else if (it->first == "threads")
+		{
 			number_thread = stoi(it->second);
 		}
-    }
+	}
 }
 
 int main(int argc, char *argv[])
@@ -272,7 +281,8 @@ int main(int argc, char *argv[])
 
 	load_config(argv[1]);
 
-	if (port < 25100 || port > 25299){
+	if (port < 25100 || port > 25299)
+	{
 		fprintf(stderr, "port should be in the range 25100 - 25299\n");
 		exit(1);
 	}
