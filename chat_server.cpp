@@ -1,34 +1,44 @@
-#include <iostream>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <strings.h>
 #include <map>
 #include <string>
-#include <string.h>
-#include <unistd.h>
 #include <vector>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdlib.h>
-#include <algorithm>
-#include <pthread.h>
 #include <cstring>
-#include <signal.h>
 #include <fstream>
+#include <iostream>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <signal.h>
+#include <strings.h>
+#include <pthread.h>
+#include <algorithm>
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 using namespace std;
 
 const unsigned MAXBUFLEN = 512;
-pthread_mutex_t accept_lock = PTHREAD_MUTEX_INITIALIZER;
-int serv_sockfd, port, number_thread = 1;
+// pthread_mutex_t accept_lock = PTHREAD_MUTEX_INITIALIZER;
 socklen_t len;
 pthread_t tid;
-struct sockaddr_in addr, recaddr;
+fd_set allset, rset;
 vector<int> sock_vector;
 map<string, int> usertofd;
 map<int, string> fdtouser;
-fd_set allset, rset;
-int sockfd, rec_sock, maxfd;
+struct sockaddr_in addr, recaddr;
+int serv_sockfd, port, rec_sock, maxfd, number_thread = 1;
+
+static void sig_int(int signo)
+{
+	for (const auto &pair : fdtouser)
+	{
+		close(pair.first);
+	}
+	close(serv_sockfd);
+	cout << "Server closed" << endl;
+	exit(0);
+}
 
 void parse_message(string str, int cli_fd)
 {
@@ -59,11 +69,6 @@ void parse_message(string str, int cli_fd)
 		{
 			strcpy(msg, "ERROR: User already logged in.");
 		}
-		write(cli_fd, msg, strlen(msg));
-	}
-	else if (fdtouser[cli_fd] == "" && str != "exit")
-	{
-		strcpy(msg, "ERROR: User not logged in.");
 		write(cli_fd, msg, strlen(msg));
 	}
 	else if ((pos = str.find(chat)) != string::npos)
@@ -110,6 +115,12 @@ void parse_message(string str, int cli_fd)
 		fdtouser[cli_fd] = "";
 		write(cli_fd, msg, strlen(msg));
 	}
+	else if (str == "close")
+	{
+		usertofd.erase(fdtouser[cli_fd]);
+		fdtouser[cli_fd] = "";
+		write(cli_fd, msg, strlen(msg));
+	}
 	else if (str == "exit")
 	{
 		strcpy(msg, "exit");
@@ -117,6 +128,7 @@ void parse_message(string str, int cli_fd)
 		{
 			fdtouser.erase(cli_fd);
 			write(cli_fd, msg, strlen(msg));
+			FD_CLR(cli_fd, &allset);
 			close(cli_fd);
 		}
 		else
@@ -125,23 +137,24 @@ void parse_message(string str, int cli_fd)
 			write(cli_fd, msg, strlen(msg));
 		}
 	}
+	else
+	{
+		strcpy(msg, "ERROR: Invalid command");
+		write(cli_fd, msg, strlen(msg));
+	}
 }
 
-void *one_thread1(void *arg)
+void *init_connection(void *arg)
 {
 	char buf[MAXBUFLEN];
-	// int tid = *((int *)arg);
 	free(arg);
 
-	// cout << "thread " << tid << " created" << endl;
 	while (1)
 	{
-		// pthread_mutex_lock(&accept_lock);
 		rset = allset;
 		select(maxfd + 1, &rset, NULL, NULL, NULL);
 		if (FD_ISSET(serv_sockfd, &rset))
 		{
-			/* somebody tries to connect */
 			if ((rec_sock = accept(serv_sockfd, (struct sockaddr *)(&recaddr), &len)) < 0)
 			{
 				if (errno == EINTR)
@@ -152,14 +165,12 @@ void *one_thread1(void *arg)
 					exit(1);
 				}
 			}
-			// cout << "new connection: " << rec_sock << endl;
 			fdtouser[rec_sock] = "";
 			sock_vector.push_back(rec_sock);
 			FD_SET(rec_sock, &allset);
 			if (rec_sock > maxfd)
 				maxfd = rec_sock;
 		}
-		// pthread_mutex_unlock(&accept_lock);
 
 		auto itr = sock_vector.begin();
 		while (itr != sock_vector.end())
@@ -195,44 +206,9 @@ void *one_thread1(void *arg)
 	}
 }
 
-void check_time_wait()
-{
-	int optval;
-	socklen_t optlen = sizeof(optval);
-	if (getsockopt(serv_sockfd, SOL_SOCKET, SO_ERROR, &optval, &optlen) == -1)
-	{
-		perror("getsockopt");
-		exit(EXIT_FAILURE);
-	}
-
-	if (optval == EINPROGRESS)
-	{
-		printf("Socket is in TIME_WAIT state\n");
-	}
-	else
-	{
-		printf("Socket is not in TIME_WAIT state\n");
-	}
-
-	// Close the socket
-	close(serv_sockfd);
-}
-
-static void sig_int(int signo)
-{
-	for (const auto &pair : fdtouser)
-	{
-		close(pair.first);
-	}
-	// check_time_wait();
-	close(serv_sockfd);
-	cout << "Server closed" << endl;
-	exit(0);
-}
-
 void load_config(char *filename)
 {
-	map<string, string> kv_map;
+	map<string, string> config;
 	ifstream infile(filename);
 	string line;
 	while (getline(infile, line))
@@ -242,22 +218,16 @@ void load_config(char *filename)
 		{
 			string key = line.substr(0, pos);
 			string value = line.substr(pos + 1);
-			kv_map[key] = value;
+			config[key] = value;
 		}
 	}
 	infile.close();
 
-	for (auto it = kv_map.begin(); it != kv_map.end(); ++it)
+	for (auto it = config.begin(); it != config.end(); ++it)
 	{
-		// cout << it->first << " = " << it->second << endl;
 		if (it->first == "port")
 		{
 			port = stoi(it->second);
-			if (port == 0)
-			{
-				port = 25100 + (rand() % (25299 - 25100 + 1));
-				;
-			}
 		}
 		else if (it->first == "threads")
 		{
@@ -268,8 +238,11 @@ void load_config(char *filename)
 
 int main(int argc, char *argv[])
 {
-	struct sockaddr_in serv_addr;
 	int *tid_ptr;
+	char ipstr[INET_ADDRSTRLEN];
+	struct sockaddr_in serv_addr, addr_info;
+
+	socklen_t addr_info_len = sizeof(addr_info);
 
 	signal(SIGINT, sig_int);
 
@@ -281,14 +254,12 @@ int main(int argc, char *argv[])
 
 	load_config(argv[1]);
 
-	if (port < 25100 || port > 25299)
+	if (port != 0 && (port < 25100 || port > 25299))
 	{
-		fprintf(stderr, "port should be in the range 25100 - 25299\n");
+		fprintf(stderr, "port should be 0 in the range 25100 - 25299\n");
 		exit(1);
 	}
 
-	// cout << "port = " << port << " number of threads == " << number_thread << endl;
-	cout << "server started on port: " << port << endl;
 	serv_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
 	bzero((void *)&serv_addr, sizeof(serv_addr));
@@ -303,17 +274,25 @@ int main(int argc, char *argv[])
 
 	listen(serv_sockfd, 5);
 
+	getsockname(serv_sockfd, (sockaddr *)&addr_info, &addr_info_len);
+
+	// convert the IP address from network byte order to a string
+
+	inet_ntop(AF_INET, &(addr_info.sin_addr), ipstr, INET_ADDRSTRLEN);
+
+	// print the IP address and port
+	cout << "Server started on " << ipstr << " on port " << ntohs(addr_info.sin_port) << endl;
+
 	FD_ZERO(&allset);
 	FD_SET(serv_sockfd, &allset);
 	maxfd = serv_sockfd;
-
 	sock_vector.clear();
 
 	for (int i = 0; i < number_thread; ++i)
 	{
 		tid_ptr = (int *)malloc(sizeof(int));
 		*tid_ptr = i;
-		pthread_create(&tid, NULL, &one_thread1, (void *)tid_ptr);
+		pthread_create(&tid, NULL, &init_connection, (void *)tid_ptr);
 	}
 
 	for (;;)

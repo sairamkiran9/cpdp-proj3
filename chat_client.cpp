@@ -25,8 +25,8 @@ static void sig_int(int signo)
 {
 	signal(SIGINT, sig_int);
 	cout << "client socket closed" << endl;
-	write(sockfd, "logout", 6);
-	close(sockfd);
+	write(sockfd, "close", 6);
+	// close(sockfd);
 	exit(0);
 }
 
@@ -48,46 +48,49 @@ void *process_connection(void *arg)
 			{
 				cout << "something wrong" << endl;
 			}
-			close(sockfd);
+			// close(sockfd);
 			exit(1);
 		}
 		buf[n] = '\0';
 		if (strcmp(buf, "exit") == 0)
 		{
 			cout << "Client session closed." << endl;
-			close(sockfd);
+			// close(sockfd);
 			exit(0);
 		}
 		cout << buf << endl;
 	}
 }
 
-void load_config(char *filename) {
-    map<string, string> kv_map;
-    ifstream infile(filename);
-    string line;
-    while (getline(infile, line)) {
-        size_t pos = line.find(':');
-        if (pos != string::npos) {
-            string key = line.substr(0, pos);
-            string value = line.substr(pos+1);
-            kv_map[key] = value;
-        }
-    }
-    infile.close();
-
-    for (auto it = kv_map.begin(); it != kv_map.end(); ++it) {
-		if (it->first == "servport"){
-			port = stoi(it->second);
-			if(port == 0) {
-				port = 25100 + (rand() % (25299 - 25100+ 1));;
-			}
+void load_config(char *filename)
+{
+	map<string, string> kv_map;
+	ifstream infile(filename);
+	string line;
+	while (getline(infile, line))
+	{
+		size_t pos = line.find(':');
+		if (pos != string::npos)
+		{
+			string key = line.substr(0, pos);
+			string value = line.substr(pos + 1);
+			kv_map[key] = value;
 		}
-		else if (it->first == "servhost") {
+	}
+	infile.close();
+
+	for (auto it = kv_map.begin(); it != kv_map.end(); ++it)
+	{
+		if (it->first == "servport")
+		{
+			port = stoi(it->second);
+		}
+		else if (it->first == "servhost")
+		{
 			host = it->second;
 			host.erase(remove_if(host.begin(), host.end(), ::isspace), host.end());
 		}
-    }
+	}
 }
 
 int main(int argc, char **argv)
@@ -101,7 +104,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "%s chat_client configration_file\n", argv[0]);
 		exit(1);
 	}
-	
+
 	load_config(argv[1]);
 
 	cout << host << " " << port << endl;
@@ -109,9 +112,6 @@ int main(int argc, char **argv)
 	bzero(&hints, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
-
-	// const char* hostname = "www.example.com";
-    // const char* port1 = "";
 
 	if ((rv = getaddrinfo(host.c_str(), to_string(port).c_str(), &hints, &res)) != 0)
 	{
@@ -124,7 +124,6 @@ int main(int argc, char **argv)
 	do
 	{
 		sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-
 		if (sockfd < 0)
 			continue;
 		if (connect(sockfd, res->ai_addr, res->ai_addrlen) == 0)
@@ -132,10 +131,11 @@ int main(int argc, char **argv)
 			flag = 1;
 			break;
 		}
-		else{
+		else
+		{
 			perror("connect: ");
 		}
-		close(sockfd);
+		// close(sockfd);
 	} while ((res = res->ai_next) != NULL);
 	freeaddrinfo(ressave);
 
@@ -155,5 +155,4 @@ int main(int argc, char **argv)
 	{
 		write(sockfd, oneline.c_str(), oneline.length());
 	}
-	// exit(0);
 }

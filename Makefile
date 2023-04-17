@@ -1,6 +1,6 @@
 # Compiler
 CXX = g++
-CXXFLAGS = -g -Wall -pedantic -pthread
+CXXFLAGS = -Wall -pedantic -pthread
 
 # Single target to run complie and get all binaries
 shell: chat_server.x chat_client.x
