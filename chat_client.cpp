@@ -26,7 +26,6 @@ static void sig_int(int signo)
 	signal(SIGINT, sig_int);
 	cout << "client socket closed" << endl;
 	write(sockfd, "close", 6);
-	// close(sockfd);
 	exit(0);
 }
 
@@ -48,14 +47,12 @@ void *process_connection(void *arg)
 			{
 				cout << "something wrong" << endl;
 			}
-			// close(sockfd);
 			exit(1);
 		}
 		buf[n] = '\0';
 		if (strcmp(buf, "exit") == 0)
 		{
 			cout << "Client session closed." << endl;
-			// close(sockfd);
 			exit(0);
 		}
 		cout << buf << endl;
@@ -135,7 +132,6 @@ int main(int argc, char **argv)
 		{
 			perror("connect: ");
 		}
-		// close(sockfd);
 	} while ((res = res->ai_next) != NULL);
 	freeaddrinfo(ressave);
 

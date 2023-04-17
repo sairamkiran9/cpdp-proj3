@@ -27,3 +27,12 @@
         ```
 
 #### Method functionality details:
+- <b>Server:</b>
+    - The server uses pthread and select methods. 
+    - After creating a socket and a connnection is establised to listen and accept new clients. The server model intitalizes a new thread. 
+    - This new thread use select method to check the status of the file descriptor and than checks for new client connections followed by receiving of messages if any from each client.
+    - The received message is parsed and than redirected as per the instructions.
+
+- <b>Client:</b>
+ - The client uses pthread method for reading messages from the server.
+ - The client reads input messages from the user and redirects to the server. This is independent of the thread functionality (reading messages from the server).
