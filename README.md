@@ -34,5 +34,5 @@
     - The received message is parsed and than redirected as per the instructions.
 
 - <b>Client:</b>
- - The client uses pthread method for reading messages from the server.
- - The client reads input messages from the user and redirects to the server. This is independent of the thread functionality (reading messages from the server).
+    - The client uses pthread method for reading messages from the server.
+    - The client reads input messages from the user and redirects to the server. This is independent of the thread functionality (reading messages from the server).
