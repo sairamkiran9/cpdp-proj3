@@ -19,7 +19,6 @@
 using namespace std;
 
 const unsigned MAXBUFLEN = 512;
-// pthread_mutex_t accept_lock = PTHREAD_MUTEX_INITIALIZER;
 socklen_t len;
 pthread_t tid;
 fd_set allset, rset;
@@ -27,8 +26,9 @@ vector<int> sock_vector;
 map<string, int> usertofd;
 map<int, string> fdtouser;
 struct sockaddr_in addr, recaddr;
-int serv_sockfd, port, rec_sock, maxfd, number_thread = 1;
+int serv_sockfd, port, rec_sock, maxfd;
 
+/* Signal handler */
 static void sig_int(int signo)
 {
 	for (const auto &pair : fdtouser)
@@ -93,8 +93,20 @@ void parse_message(string str, int cli_fd)
 			}
 			str.erase(0, 1);
 		}
+		if (str[0] == '\"' && str[str.length() - 1] == '\"')
+		{
+			str = str.substr(1);
+			str.erase(str.length() - 1);
+		}
+		if (fdtouser[cli_fd] == "")
+		{
+			strcpy(msg, "Error: User need to login to do this action.");
+			write(cli_fd, msg, strlen(msg));
+			return;
+		}
 		str = fdtouser[cli_fd] + " >> " + str;
 		strcpy(msg, str.c_str());
+
 		if (username != "")
 		{
 			write(fd, msg, strlen(msg));
@@ -110,10 +122,19 @@ void parse_message(string str, int cli_fd)
 	}
 	else if (str == "logout")
 	{
-		strcpy(msg, "User logged out.");
-		usertofd.erase(fdtouser[cli_fd]);
-		fdtouser[cli_fd] = "";
-		write(cli_fd, msg, strlen(msg));
+		if (fdtouser[cli_fd] == "")
+		{
+			strcpy(msg, "Error: User need to login to do this action.");
+			write(cli_fd, msg, strlen(msg));
+			return;
+		}
+		else
+		{
+			strcpy(msg, "User logged out.");
+			usertofd.erase(fdtouser[cli_fd]);
+			fdtouser[cli_fd] = "";
+			write(cli_fd, msg, strlen(msg));
+		}
 	}
 	else if (str == "close")
 	{
@@ -123,11 +144,16 @@ void parse_message(string str, int cli_fd)
 	}
 	else if (str == "exit")
 	{
-		strcpy(msg, "exit");
 		if (fdtouser[cli_fd] == "")
 		{
 			fdtouser.erase(cli_fd);
+			strcpy(msg, "exit");
 			write(cli_fd, msg, strlen(msg));
+			auto it = find(sock_vector.begin(), sock_vector.end(), cli_fd);
+			if (it != sock_vector.end())
+			{
+				sock_vector.erase(it);
+			}
 			FD_CLR(cli_fd, &allset);
 			close(cli_fd);
 		}
@@ -144,15 +170,18 @@ void parse_message(string str, int cli_fd)
 	}
 }
 
-void *init_connection(void *arg)
+// void *init_connection(void *arg)
+void init_connection()
 {
 	char buf[MAXBUFLEN];
-	free(arg);
 
 	while (1)
 	{
 		rset = allset;
-		select(maxfd + 1, &rset, NULL, NULL, NULL);
+		if (select(maxfd + 1, &rset, NULL, NULL, NULL) == -1)
+		{
+			continue;
+		}
 		if (FD_ISSET(serv_sockfd, &rset))
 		{
 			if ((rec_sock = accept(serv_sockfd, (struct sockaddr *)(&recaddr), &len)) < 0)
@@ -172,29 +201,29 @@ void *init_connection(void *arg)
 				maxfd = rec_sock;
 		}
 
-		auto itr = sock_vector.begin();
-		while (itr != sock_vector.end())
+		for (auto &cli : sock_vector)
 		{
-			int num, fd;
-			fd = *itr;
-			if (FD_ISSET(fd, &rset))
+			int num;
+			if (FD_ISSET(cli, &rset))
 			{
-				num = read(fd, buf, 100);
+				num = read(cli, buf, 100);
 				if (num == 0)
 				{
-					/* client exits */
-					close(fd);
-					FD_CLR(fd, &allset);
-					itr = sock_vector.erase(itr);
+					FD_CLR(cli, &allset);
+					close(cli);
+					auto it = find(sock_vector.begin(), sock_vector.end(), cli);
+					if (it != sock_vector.end())
+					{
+						sock_vector.erase(it);
+					}
 					continue;
 				}
 				else
 				{
 					buf[num] = '\0';
-					parse_message(buf, fd);
+					parse_message(buf, cli);
 				}
 			}
-			++itr;
 		}
 
 		maxfd = serv_sockfd;
@@ -206,10 +235,16 @@ void *init_connection(void *arg)
 	}
 }
 
+/* Load conf file */
 void load_config(char *filename)
 {
 	map<string, string> config;
 	ifstream infile(filename);
+	if (!infile.good())
+	{
+		cout << "File doesn't exists" << std::endl;
+		exit(0);
+	}
 	string line;
 	while (getline(infile, line))
 	{
@@ -222,23 +257,18 @@ void load_config(char *filename)
 		}
 	}
 	infile.close();
-
 	for (auto it = config.begin(); it != config.end(); ++it)
 	{
 		if (it->first == "port")
 		{
 			port = stoi(it->second);
 		}
-		else if (it->first == "threads")
-		{
-			number_thread = stoi(it->second);
-		}
 	}
 }
 
 int main(int argc, char *argv[])
 {
-	int *tid_ptr;
+	int optval = 1;
 	char ipstr[INET_ADDRSTRLEN];
 	struct sockaddr_in serv_addr, addr_info;
 
@@ -252,14 +282,10 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	/* load configuration file */
 	load_config(argv[1]);
 
-	if (port != 0 && (port < 25100 || port > 25299))
-	{
-		fprintf(stderr, "port should be 0 in the range 25100 - 25299\n");
-		exit(1);
-	}
-
+	/* Create socket */
 	serv_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
 	bzero((void *)&serv_addr, sizeof(serv_addr));
@@ -267,20 +293,16 @@ int main(int argc, char *argv[])
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(port);
 
-	int optval = 1;
+	/* Set port to reusable */
 	setsockopt(serv_sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
-
 	bind(serv_sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-
 	listen(serv_sockfd, 5);
 
+	/* get active port and ip address */
 	getsockname(serv_sockfd, (sockaddr *)&addr_info, &addr_info_len);
 
-	// convert the IP address from network byte order to a string
-
+	/* convert the IP address from network byte order to a string */
 	inet_ntop(AF_INET, &(addr_info.sin_addr), ipstr, INET_ADDRSTRLEN);
-
-	// print the IP address and port
 	cout << "Server started on " << ipstr << " on port " << ntohs(addr_info.sin_port) << endl;
 
 	FD_ZERO(&allset);
@@ -288,12 +310,7 @@ int main(int argc, char *argv[])
 	maxfd = serv_sockfd;
 	sock_vector.clear();
 
-	for (int i = 0; i < number_thread; ++i)
-	{
-		tid_ptr = (int *)malloc(sizeof(int));
-		*tid_ptr = i;
-		pthread_create(&tid, NULL, &init_connection, (void *)tid_ptr);
-	}
+	init_connection();
 
 	for (;;)
 	{

@@ -21,11 +21,12 @@ const unsigned MAXBUFLEN = 512;
 int sockfd, port;
 string host;
 
+/* Signal handler */
 static void sig_int(int signo)
 {
-	signal(SIGINT, sig_int);
 	cout << "client socket closed" << endl;
 	write(sockfd, "close", 6);
+	close(sockfd);
 	exit(0);
 }
 
@@ -47,11 +48,13 @@ void *process_connection(void *arg)
 			{
 				cout << "something wrong" << endl;
 			}
+			close(sockfd);
 			exit(1);
 		}
 		buf[n] = '\0';
 		if (strcmp(buf, "exit") == 0)
 		{
+			close(sockfd);
 			cout << "Client session closed." << endl;
 			exit(0);
 		}
@@ -59,10 +62,15 @@ void *process_connection(void *arg)
 	}
 }
 
+/* Load conf file */
 void load_config(char *filename)
 {
 	map<string, string> kv_map;
 	ifstream infile(filename);
+	if (!infile.good()) {
+        cout << "File doesn't exists" << std::endl;
+		exit(0);
+    } 
 	string line;
 	while (getline(infile, line))
 	{
@@ -104,7 +112,7 @@ int main(int argc, char **argv)
 
 	load_config(argv[1]);
 
-	cout << host << " " << port << endl;
+	cout << "Client connected on " << host << " " << port << endl;
 
 	bzero(&hints, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
@@ -132,6 +140,7 @@ int main(int argc, char **argv)
 		{
 			perror("connect: ");
 		}
+		close(sockfd);
 	} while ((res = res->ai_next) != NULL);
 	freeaddrinfo(ressave);
 

@@ -26,11 +26,18 @@
         servport: [server port]
         ```
 
+#### Chat functions
+- login [username]
+- logout
+- chat [@username] message
+- chat message
+- exit
+
 #### Method functionality details:
 - <b>Server:</b>
-    - The server uses pthread and select methods. 
-    - After creating a socket and a connnection is establised to listen and accept new clients. The server model intitalizes a new thread. 
-    - This new thread use select method to check the status of the file descriptor and than checks for new client connections followed by receiving of messages if any from each client.
+    - The server uses select method. 
+    - After creating a socket and a connnection is establised to listen and accept new clients. The server model intitalizes a new method. 
+    - This new method use select method to check the status of the file descriptor and than checks for new client connections followed by receiving of messages if any from each client.
     - The received message is parsed and than redirected as per the instructions.
 
 - <b>Client:</b>
